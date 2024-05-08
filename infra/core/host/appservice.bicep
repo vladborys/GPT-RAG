@@ -33,8 +33,10 @@ param use32BitWorkerProcess bool = false
 param ftpsState string = 'FtpsOnly'
 param healthCheckPath string = ''
 param basicPublishingCredentials bool = false
-param vnetName string
-param subnetId string
+//param vnetName string
+//param subnetId string
+
+param aseName string = ''
 
 resource appService 'Microsoft.Web/sites@2022-03-01' = {
   name: name
@@ -43,10 +45,13 @@ resource appService 'Microsoft.Web/sites@2022-03-01' = {
   kind: kind
   properties: {
     serverFarmId: appServicePlanId
-    virtualNetworkSubnetId: subnetId
+    hostingEnvironmentProfile: {
+      id: true ? resourceId('Microsoft.Web/hostingEnvironments', aseName) : ''
+    }
+    //virtualNetworkSubnetId: aseName == '' ? subnetId : ''
     vnetRouteAllEnabled: true
     siteConfig: {
-      vnetName: vnetName
+      //vnetName: aseName == '' ? vnetName : ''
       linuxFxVersion: linuxFxVersion
       alwaysOn: alwaysOn
       ftpsState: ftpsState

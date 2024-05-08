@@ -14,6 +14,9 @@
     "resourceGroupName": {
       "value": "${AZURE_RESOURCE_GROUP_NAME}"
     },
+    "appServiceEnvironment":{
+      "value": "${AZURE_APP_SERVICE_ENVIRONMENT}"
+    },
     "networkIsolation": {
       "value": "${AZURE_NETWORK_ISOLATION}"
     },

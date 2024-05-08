@@ -19,9 +19,9 @@ param runtimeVersion string
 param use32BitWorkerProcess bool = false
 param healthCheckPath string = ''
 var runtimeNameAndVersion = '${runtimeName}|${runtimeVersion}'
-param vnetName string
-param subnetId string
-param networkIsolation bool
+//param vnetName string
+//param subnetId string
+//param networkIsolation bool
 
 @description('Storage Account type')
 @allowed([
@@ -39,6 +39,8 @@ param location string = resourceGroup().location
   'python'
 ])
 param runtime string = 'python'
+
+param aseName string = ''
 
 var functionAppName = appName
 var functionWorkerRuntime = runtime
@@ -68,10 +70,13 @@ resource functionApp 'Microsoft.Web/sites@2022-09-01' = {
   properties: {
     serverFarmId: appServicePlanId
     clientAffinityEnabled: clientAffinityEnabled
-    virtualNetworkSubnetId: subnetId
+    hostingEnvironmentProfile: {
+      id: true ? resourceId('Microsoft.Web/hostingEnvironments', aseName) : ''
+    }
+    //virtualNetworkSubnetId: aseName == '' ? subnetId : ''
     httpsOnly: true
     siteConfig: {
-      vnetName: vnetName
+      //vnetName: aseName == '' ? vnetName : ''
       linuxFxVersion: runtimeNameAndVersion
       alwaysOn: alwaysOn
       ftpsState: 'FtpsOnly'

@@ -38,6 +38,11 @@ var tags = union(azdTags, deploymentTags)
 @allowed([true, false])
 param networkIsolation bool = false
 
+//app service environment
+@description('ASE? If yes it will create isolated app with network.')
+@allowed([true, false])
+param appServiceEnvironment bool = false
+
 // azd can automatically generate a password and put in keyvault. See the mapping in main.parameters.json for vmUserInitialPassword.
 // If the references KeyVault exists, azd will pull the value from it, otherwise it will generate a random password and store in the KeyVault after it is created.
 // The template makes sure to create the KeyVault and set the output to match what is used in main.parameters.json.
@@ -144,6 +149,13 @@ param chunkTokenOverlap string = '200'
 @description('Name of the container where source documents will be stored.')
 param storageContainerName string = 'documents'
 
+// hosting
+@description('App service plan sku')
+@allowed(['P0v3', 'I2'])
+param appServicePlanSku string = true?'I2':'P0v3'
+//param appServicePlanSku string = appServiceEnvironment?'I1':'P0v3'
+
+
 // Service names
 // The name for each service can be set from environment variables which are mapped in main.parameters.json.
 // Then no maping to specific name is defined, a unique name is generated for each service based on the resourceToken created above.
@@ -186,6 +198,10 @@ var openAiServiceName = !empty(azureOpenAiServiceName) ? azureOpenAiServiceName 
 @description('Virtual network name if using network isolation. Use your own name convention or leave as it is to generate a random name.')
 param azureVnetName string = ''
 var vnetName = !empty(azureVnetName) ? azureVnetName : 'aivnet0-${resourceToken}'
+@description('App Service Environment Name. Use your own name convention or leave as it is to generate a random name.')
+param azureAppServiceEnvironmentName string = ''
+var appServiceEnvironmentName = !empty(azureAppServiceEnvironmentName) ? azureAppServiceEnvironmentName : 'ase0-${resourceToken}'
+
 
 var orchestratorEndpoint = 'https://${orchestratorFunctionAppName}.azurewebsites.net/api/orc'
 var orchestratorUri = 'https://${orchestratorFunctionAppName}.azurewebsites.net'
@@ -200,19 +216,33 @@ resource resourceGroup 'Microsoft.Resources/resourceGroups@2021-04-01' = {
   tags: tags
 }
 
-// networking
+// Networking and ASE
 
-module vnet './core/network/vnet.bicep' = {
+/*module vnetClassic './core/network/vnet.bicep' = if(!true) {
   name: vnetName
   scope: resourceGroup
   params: {
-    name: vnetName
+    name: vnetName    
     location: location
     tags: tags
     appServicePlanId: appServicePlan.outputs.id
-    appServicePlanName: appServicePlan.outputs.name
+    appServicePlanName: appServicePlan.outputs.name 
+  }
+}*/
+
+module vnetAse './core/network/vnet-ase.bicep' = if(true) {
+  name: vnetName
+  scope: resourceGroup
+  params: {
+    name: vnetName    
+    location: location
+    tags: tags
+    aseName: appServiceEnvironmentName
   }
 }
+
+//initialize vnet var with current networking profile 
+var vnet = vnetAse //vnetClassic
 
 // DNSs Zones
 
@@ -408,7 +438,7 @@ module keyvaultpe './core/network/private-endpoint.bicep' = if (networkIsolation
 }
 
 // Create an App Service Plan
-module appServicePlan './core/host/appserviceplan.bicep' = {
+/*module appServicePlanClassic './core/host/appserviceplan.bicep' = if(!true) {
   name: 'appserviceplan'
   scope: resourceGroup
   params: {
@@ -416,12 +446,35 @@ module appServicePlan './core/host/appserviceplan.bicep' = {
     location: location
     tags: tags
     sku: {
-      name: 'P0v3'
+      name: appServicePlanSku
+      capacity: 1
+    }
+    kind: 'linux'
+  }
+}*/
+
+module appServicePlanAse './core/host/appserviceplan-ase.bicep' = if(true) {
+  name: 'appserviceplanAse'
+  scope: resourceGroup
+  dependsOn: [vnetAse]
+  params: {
+    name: appServicePlanName
+    aseName: appServiceEnvironmentName
+    location: location
+    tags: tags
+    sku: {
+      name: appServicePlanSku
+      tier: 'Isolated'
+      size: appServicePlanSku
+      family: 'I'
       capacity: 1
     }
     kind: 'linux'
   }
 }
+
+//initialize appServicePlan var with current server farms profile 
+var appServicePlan = appServicePlanAse //appServicePlanClassic
 
 // app insights
 module appInsights './core/host/appinsights.bicep' = {
@@ -438,9 +491,10 @@ module orchestrator './core/host/functions.bicep' = {
   name: 'orchestrator'
   scope: resourceGroup
   params: {
-    subnetId: vnet.outputs.appIntSubId
-    vnetName: vnet.outputs.name
-    networkIsolation: networkIsolation
+    aseName: true ? appServiceEnvironmentName : ''
+    //subnetId: vnet.outputs.appIntSubId
+    //vnetName: vnet.outputs.name
+    //networkIsolation: networkIsolation
     keyVaultName: keyVault.outputs.name
     storageAccountName: '${storageAccountName}orc'
     appServicePlanId: appServicePlan.outputs.id
@@ -596,8 +650,9 @@ module frontEnd  'core/host/appservice.bicep'  = {
   params: {
     name: appServiceName
     applicationInsightsName: appInsightsName
-    subnetId: vnet.outputs.appIntSubId
-    vnetName: vnet.outputs.name
+    aseName: true ? appServiceEnvironmentName : ''
+    //subnetId: vnet.outputs.appIntSubId
+    //vnetName: vnet.outputs.name
     appCommandLine: 'python ./app.py'
     location: location
     tags: union(tags, { 'azd-service-name': 'frontend' })
@@ -699,11 +754,12 @@ module dataIngestion './core/host/functions.bicep' = {
   name: 'dataIngestion'
   scope: resourceGroup
   params: {
+    aseName: true ? appServiceEnvironmentName : ''
     keyVaultName: keyVault.outputs.name
     appServicePlanId: appServicePlan.outputs.id
-    subnetId: vnet.outputs.appIntSubId
-    vnetName: vnet.outputs.name
-    networkIsolation: networkIsolation
+    //subnetId: vnet.outputs.appIntSubId
+    //vnetName: vnet.outputs.name
+    //networkIsolation: networkIsolation
     storageAccountName: '${storageAccountName}ing'
     appName: dataIngestionFunctionAppName
     location: location
